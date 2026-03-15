@@ -1,0 +1,29 @@
+--- a/include/libstdc++/9.3.0/bits/unique_ptr.h
++++ b/include/libstdc++/9.3.0/bits/unique_ptr.h
+@@ -487,8 +487,7 @@
+       template<typename _Up,
+ 	       typename _Vp = _Dp,
+ 	       typename = _DeleterConstraint<_Vp>,
+-	       typename = typename enable_if<
+-                 __safe_conversion_raw<_Up>::value, bool>::type>
++	       typename = typename enable_if<is_pointer<_Up>::value, bool>::type>
+ 	explicit
+ 	unique_ptr(_Up __p) noexcept
+ 	: _M_t(__p)
+@@ -653,14 +652,7 @@
+-      template <typename _Up,
+-                typename = _Require<
+-                  __or_<is_same<_Up, pointer>,
+-                        __and_<is_same<pointer, element_type*>,
+-                               is_pointer<_Up>,
+-                               is_convertible<
+-                                 typename remove_pointer<_Up>::type(*)[],
+-                                 element_type(*)[]
+-                               >
+-                        >
+-                  >
+-               >>
++      template <typename _Up,
++                typename = typename enable_if<is_pointer<_Up>::value, bool>::type>
+       void
+       reset(_Up __p) noexcept

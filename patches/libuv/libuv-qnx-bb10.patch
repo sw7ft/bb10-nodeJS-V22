@@ -1,0 +1,291 @@
+diff --git a/include/uv.h b/include/uv.h
+index da06345..9c53410 100644
+--- a/include/uv.h
++++ b/include/uv.h
+@@ -23,6 +23,14 @@
+ 
+ #ifndef UV_H
+ #define UV_H
++
++#include "uv/errno.h"
++#include "uv/version.h"
++#include <stddef.h>
++#include <stdio.h>
++#include <stdint.h>
++#include <math.h>
++
+ #ifdef __cplusplus
+ extern "C" {
+ #endif
+@@ -51,13 +59,6 @@ extern "C" {
+ #endif
+ #endif /* UV_EXTERN */
+ 
+-#include "uv/errno.h"
+-#include "uv/version.h"
+-#include <stddef.h>
+-#include <stdio.h>
+-#include <stdint.h>
+-#include <math.h>
+-
+ /* Internal type, do not use. */
+ struct uv__queue {
+   struct uv__queue* next;
+diff --git a/include/uv/errno.h b/include/uv/errno.h
+index ac00778..e8635c6 100644
+--- a/include/uv/errno.h
++++ b/include/uv/errno.h
+@@ -86,7 +86,7 @@
+ # define UV__EAGAIN (-4088)
+ #endif
+ 
+-#if defined(EALREADY) && !defined(_WIN32)
++#if defined(EALREADY) && !defined(_WIN32) && (!defined(EBUSY) || EALREADY != EBUSY)
+ # define UV__EALREADY UV__ERR(EALREADY)
+ #else
+ # define UV__EALREADY (-4084)
+diff --git a/src/unix/fs.c b/src/unix/fs.c
+index a45c95a..29c51c5 100644
+--- a/src/unix/fs.c
++++ b/src/unix/fs.c
+@@ -62,7 +62,7 @@
+ # define FICLONE _IOW(0x94, 9, int)
+ #endif
+ 
+-#if defined(_AIX) && !defined(_AIX71)
++#if (defined(_AIX) && !defined(_AIX71)) || defined(__QNX__)
+ # include <utime.h>
+ #endif
+ 
+@@ -211,8 +211,7 @@ static ssize_t uv__fs_fdatasync(uv_fs_t* req) {
+     || defined(__NetBSD__)                                                    \
+     || defined(__OpenBSD__)                                                   \
+     || defined(__linux__)                                                     \
+-    || defined(__sun)                                                         \
+-    || defined(__QNX__)
++    || defined(__sun)
+ static struct timespec uv__fs_to_timespec(double time) {
+   struct timespec ts;
+ 
+@@ -234,7 +233,12 @@ static struct timespec uv__fs_to_timespec(double time) {
+ 
+ 
+ static ssize_t uv__fs_futime(uv_fs_t* req) {
+-#if defined(__APPLE__)                                                        \
++#if defined(__QNX__)
++  struct utimbuf buf;
++  buf.actime = req->atime;
++  buf.modtime = req->mtime;
++  return futime(req->file, &buf);
++#elif defined(__APPLE__)                                                      \
+     || defined(_AIX71)                                                        \
+     || defined(__DragonFly__)                                                 \
+     || defined(__FreeBSD__)                                                   \
+@@ -242,8 +246,7 @@ static ssize_t uv__fs_futime(uv_fs_t* req) {
+     || defined(__NetBSD__)                                                    \
+     || defined(__OpenBSD__)                                                   \
+     || defined(__linux__)                                                     \
+-    || defined(__sun)                                                         \
+-    || defined(__QNX__)
++    || defined(__sun)
+   struct timespec ts[2];
+   ts[0] = uv__fs_to_timespec(req->atime);
+   ts[1] = uv__fs_to_timespec(req->mtime);
+@@ -1140,7 +1143,12 @@ static ssize_t uv__fs_sendfile(uv_fs_t* req) {
+ 
+ 
+ static ssize_t uv__fs_utime(uv_fs_t* req) {
+-#if defined(__APPLE__)                                                        \
++#if defined(__QNX__)
++  struct utimbuf buf;
++  buf.actime = req->atime;
++  buf.modtime = req->mtime;
++  return utime(req->path, &buf);
++#elif defined(__APPLE__)                                                      \
+     || defined(_AIX71)                                                        \
+     || defined(__DragonFly__)                                                 \
+     || defined(__FreeBSD__)                                                   \
+@@ -1148,8 +1156,7 @@ static ssize_t uv__fs_utime(uv_fs_t* req) {
+     || defined(__NetBSD__)                                                    \
+     || defined(__OpenBSD__)                                                   \
+     || defined(__linux__)                                                     \
+-    || defined(__sun)                                                         \
+-    || defined(__QNX__)
++    || defined(__sun)
+   struct timespec ts[2];
+   ts[0] = uv__fs_to_timespec(req->atime);
+   ts[1] = uv__fs_to_timespec(req->mtime);
+@@ -1175,7 +1182,10 @@ static ssize_t uv__fs_utime(uv_fs_t* req) {
+ 
+ 
+ static ssize_t uv__fs_lutime(uv_fs_t* req) {
+-#if defined(__APPLE__)                                                        \
++#if defined(__QNX__)
++  errno = ENOSYS;
++  return -1;
++#elif defined(__APPLE__)                                                      \
+     || defined(_AIX71)                                                        \
+     || defined(__DragonFly__)                                                 \
+     || defined(__FreeBSD__)                                                   \
+@@ -1183,8 +1193,7 @@ static ssize_t uv__fs_lutime(uv_fs_t* req) {
+     || defined(__NetBSD__)                                                    \
+     || defined(__OpenBSD__)                                                   \
+     || defined(__linux__)                                                     \
+-    || defined(__sun)                                                         \
+-    || defined(__QNX__)
++    || defined(__sun)
+   struct timespec ts[2];
+   ts[0] = uv__fs_to_timespec(req->atime);
+   ts[1] = uv__fs_to_timespec(req->mtime);
+@@ -1320,15 +1329,32 @@ static ssize_t uv__fs_copyfile(uv_fs_t* req) {
+   times[0].tv_nsec = src_statsbuf.st_atime_n;
+   times[1].tv_sec = src_statsbuf.st_mtime;
+   times[1].tv_nsec = src_statsbuf.st_mtime_n;
++#elif defined(__QNX__)
++  times[0].tv_sec = src_statsbuf.st_atime;
++  times[0].tv_nsec = 0;
++  times[1].tv_sec = src_statsbuf.st_mtime;
++  times[1].tv_nsec = 0;
+ #else
+   times[0] = src_statsbuf.st_atim;
+   times[1] = src_statsbuf.st_mtim;
+ #endif
+ 
++#if defined(__QNX__)
++  {
++    struct utimbuf buf;
++    buf.actime = times[0].tv_sec;
++    buf.modtime = times[1].tv_sec;
++    if (futime(dstfd, &buf) == -1) {
++      err = UV__ERR(errno);
++      goto out;
++    }
++  }
++#else
+   if (futimens(dstfd, times) == -1) {
+     err = UV__ERR(errno);
+     goto out;
+   }
++#endif
+ 
+   /*
+    * Change the ownership and permissions of the destination file to match the
+@@ -1467,6 +1493,17 @@ static void uv__to_stat(struct stat* src, uv_stat_t* dst) {
+   dst->st_birthtim.tv_nsec = src->st_ctimensec;
+   dst->st_flags = 0;
+   dst->st_gen = 0;
++#elif defined(__QNX__)
++  dst->st_atim.tv_sec = src->st_atime;
++  dst->st_atim.tv_nsec = 0;
++  dst->st_mtim.tv_sec = src->st_mtime;
++  dst->st_mtim.tv_nsec = 0;
++  dst->st_ctim.tv_sec = src->st_ctime;
++  dst->st_ctim.tv_nsec = 0;
++  dst->st_birthtim.tv_sec = src->st_ctime;
++  dst->st_birthtim.tv_nsec = 0;
++  dst->st_flags = 0;
++  dst->st_gen = 0;
+ #elif !defined(_AIX) &&         \
+     !defined(__MVS__) && (      \
+     defined(__DragonFly__)   || \
+diff --git a/src/unix/qnx.c b/src/unix/qnx.c
+index c1030ca..3f83a2b 100644
+--- a/src/unix/qnx.c
++++ b/src/unix/qnx.c
+@@ -23,7 +23,7 @@
+ #include "internal.h"
+ 
+ #include <string.h>
+-#include <sys/process.h>
++#include <process.h>
+ #include <sys/neutrino.h>
+ #include <sys/memmsg.h>
+ #include <sys/syspage.h>
+@@ -31,28 +31,12 @@
+ #include <time.h>
+ #include <stdlib.h>
+ #include <inttypes.h>
+-#if __QNX__ >= 800
+ #define cpuinfo_val cpuinfo
+-#else
+-#define cpuinfo_val new_cpuinfo
+-#endif
+ 
+ static void
+ get_mem_info(uint64_t* totalmem, uint64_t* freemem) {
+-  mem_info_t msg;
+-
+-  memset(&msg, 0, sizeof(msg));
+-  msg.i.type = _MEM_INFO;
+-  msg.i.fd = -1;
+-
+-  if (MsgSend(MEMMGR_COID, &msg.i, sizeof(msg.i), &msg.o, sizeof(msg.o))
+-      != -1) {
+-    *totalmem = msg.o.info.__posix_tmi_total;
+-    *freemem = msg.o.info.posix_tmi_length;
+-  } else {
+-    *totalmem = 0;
+-    *freemem = 0;
+-  }
++  *totalmem = 0;
++  *freemem = 0;
+ }
+ 
+ 
+@@ -129,19 +113,26 @@ uint64_t uv_get_available_memory(void) {
+ 
+ int uv_resident_set_memory(size_t* rss) {
+   int fd;
+-  procfs_asinfo asinfo;
++  int n;
++  off_t off;
++  procfs_mapinfo mapinfo[128];
+ 
+-  fd = uv__open_cloexec("/proc/self/ctl", O_RDONLY);
++  fd = uv__open_cloexec("/proc/self/as", O_RDONLY);
+   if (fd == -1)
+     return UV__ERR(errno);
+ 
+-  if (devctl(fd, DCMD_PROC_ASINFO, &asinfo, sizeof(asinfo), 0) == -1) {
+-    uv__close(fd);
+-    return UV__ERR(errno);
+-  }
+-
++  n = devctl(fd, DCMD_PROC_MAPINFO, mapinfo, sizeof(mapinfo), NULL);
+   uv__close(fd);
+-  *rss = asinfo.rss;
++
++  if (n != EOK)
++    return UV__ERR(n);
++
++  *rss = 0;
++  for (int i = 0; i < (int)(sizeof(mapinfo) / sizeof(mapinfo[0])); i++) {
++    if (mapinfo[i].size == 0)
++      break;
++    *rss += mapinfo[i].size;
++  }
+   return 0;
+ }
+ 
+diff --git a/src/unix/udp.c b/src/unix/udp.c
+index 0a41391..d8140f5 100644
+--- a/src/unix/udp.c
++++ b/src/unix/udp.c
+@@ -843,6 +843,7 @@ static int uv__udp_set_membership6(uv_udp_t* handle,
+     !defined(__ANDROID__) &&                                        \
+     !defined(__DragonFly__) &&                                      \
+     !defined(__GNU__) &&                                            \
++    !defined(__QNX__) &&                                            \
+     !defined(QNX_IOPKT)
+ static int uv__udp_set_source_membership4(uv_udp_t* handle,
+                                           const struct sockaddr_in* multicast_addr,
+@@ -1054,7 +1055,8 @@ int uv_udp_set_source_membership(uv_udp_t* handle,
+     !defined(__NetBSD__) &&                                         \
+     !defined(__ANDROID__) &&                                        \
+     !defined(__DragonFly__) &&                                      \
+-    !defined(__GNU__) &&                                          \
++    !defined(__GNU__) &&                                            \
++    !defined(__QNX__) &&                                            \
+     !defined(QNX_IOPKT)
+   int err;
+   union uv__sockaddr mcast_addr;
