@@ -1,6 +1,6 @@
 # Node.js v22.0.0 for BlackBerry 10
 
-Cross-compiled Node.js v22.0.0 for BB10 devices (QNX ARM32). Tested on BlackBerry Passport.
+Cross-compiled Node.js v22.0.0 with OpenSSL 3.0.13 for BB10 devices (QNX ARM32). Tested on BlackBerry Passport.
 
 ## Install on your BB10 device
 
@@ -98,6 +98,9 @@ echo 'alias node=/accounts/1000/shared/misc/node/node' >> ~/.profile
 | JSON, RegExp, Math | Working |
 | zlib compression | Working |
 | DNS resolution (c-ares) | Working |
+| `crypto` (SHA, AES, RSA, ECDH) | Working |
+| `https` client (TLS 1.2/1.3) | Working |
+| `tls` (TLSv1.2, TLSv1.3, ChaCha20) | Working |
 
 ## Known issues
 
@@ -105,7 +108,6 @@ echo 'alias node=/accounts/1000/shared/misc/node/node' >> ~/.profile
 |---|---|
 | `os.cpus()` / `os.totalmem()` | Crashes -- libuv syspage API mismatch on BB10's QNX |
 | SIGBUS on sustained HTTP | ARM alignment issue in libstdc++ `std::string` under heavy load |
-| No TLS/crypto | Built without OpenSSL (`--without-ssl`) |
 | No `Intl` | Built without ICU (`--without-intl`) |
 | Slow startup (~466ms) | No V8 snapshot; could be ~100ms with snapshot |
 
@@ -113,7 +115,7 @@ echo 'alias node=/accounts/1000/shared/misc/node/node' >> ~/.profile
 
 | File | Size | Description |
 |---|---|---|
-| `node` | 31 MB | Node.js v22.0.0 binary (stripped, ARM32 ELF) |
+| `node` | 35 MB | Node.js v22.0.0 binary with OpenSSL (stripped, ARM32 ELF) |
 | `libuv.so.1` | 105 KB | libuv event loop library |
 | `libstdc++.so.6` | 2.0 MB | GCC 9.3.0 C++ runtime |
 | `libgcc_s.so.1` | 215 KB | GCC runtime support |
@@ -140,7 +142,7 @@ All four files are required. The other dependencies (`libc.so.3`, `libsocket.so.
 QNX_ROOT=/root/qnx800 ./scripts/build.sh
 ```
 
-The build takes ~30 minutes. Output goes to `$WORK_DIR/deploy/`.
+The build takes ~75 minutes (OpenSSL adds significant compile time). Output goes to `$WORK_DIR/deploy/`.
 
 ### What the patches fix
 
@@ -148,7 +150,9 @@ The build takes ~30 minutes. Output goes to `$WORK_DIR/deploy/`.
 - Adds QNX as a target OS in the build system (configure.py, common.gypi, gyp files)
 - Fixes V8 for GCC 9.3.0: missing C++17 stdlib functions (`stoul`, `stoi`, `strtoll`, etc.), math function ambiguity (`fmod`, `copysign`), missing POSIX APIs (`SA_ONSTACK`, `execinfo.h`, `madvise`)
 - Fixes GCC 9.3.0 Internal Compiler Errors in complex C++ template SFINAE patterns
-- Adds QNX support to c-ares, zlib, and Node.js native bindings
+- Adds QNX support to c-ares, zlib, OpenSSL, and Node.js native bindings
+- Configures OpenSSL 3.0.13 for QNX (no-async, no-afalgeng, no-secure-memory, no-asm)
+- Adds QNX ARM to 27 OpenSSL config header dispatch files
 - Handles QNX-specific errno values, uid_t/gid_t types, missing linker flags
 
 **libuv patches** (`patches/libuv/libuv-qnx-bb10.patch`):
